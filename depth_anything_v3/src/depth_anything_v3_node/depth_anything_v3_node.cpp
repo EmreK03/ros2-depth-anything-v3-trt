@@ -83,12 +83,21 @@ DepthAnythingV3Node::DepthAnythingV3Node(const rclcpp::NodeOptions & node_option
 
   RCLCPP_INFO(get_logger(), "Using model file: %s", node_param_.onnx_path.c_str());
 
-  // Synchronized subscribers for image (via image_transport) and camera_info
-  // image_transport supports raw and compressed transports transparently
-  const auto transport = declare_parameter<std::string>("image_transport", "raw");
-  sub_image_.subscribe(this, "~/input/image", transport, rclcpp::SensorDataQoS().get_rmw_qos_profile());
+  // Resolve the remapped image topic and infer image_transport from its suffix.
+  const std::string resolved_image_topic = this->get_node_topics_interface()->resolve_topic_name("~/input/image");
+  std::string image_base_topic = resolved_image_topic;
+  std::string image_transport = "raw";
+  std::string last_segment = resolved_image_topic.substr(resolved_image_topic.find_last_of('/') + 1);
+  if (last_segment == "compressed") {
+    image_base_topic = resolved_image_topic.substr(0, resolved_image_topic.find_last_of('/'));
+    image_transport = "compressed";
+  }
+  const auto resolved_camera_info_topic = this->get_node_topics_interface()->resolve_topic_name("~/input/camera_info");
+
+  sub_image_.subscribe(
+    this, image_base_topic, image_transport, rclcpp::SensorDataQoS().get_rmw_qos_profile());
   sub_camera_info_ = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::CameraInfo>>(
-    this, "~/input/camera_info", rclcpp::SensorDataQoS().get_rmw_qos_profile());
+    this, resolved_camera_info_topic, rclcpp::SensorDataQoS().get_rmw_qos_profile());
   
   // Use approximate time synchronizer with 100ms tolerance
   sync_ = std::make_shared<message_filters::Synchronizer<ApproxSyncPolicy>>(
@@ -98,17 +107,13 @@ DepthAnythingV3Node::DepthAnythingV3Node(const rclcpp::NodeOptions & node_option
   RCLCPP_INFO(get_logger(), "Using ApproximateTime synchronizer with queue size 10");
 
   // Debug subscribers to check if individual topics are arriving
-  debug_image_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
-    "~/input/image", rclcpp::SensorDataQoS(),
-    std::bind(&DepthAnythingV3Node::onImageDebug, this, std::placeholders::_1));
+  debug_image_sub_.subscribe(
+    this, image_base_topic, image_transport,
+    rclcpp::SensorDataQoS().get_rmw_qos_profile());
+  debug_image_sub_.registerCallback(std::bind(&DepthAnythingV3Node::onImageDebug, this, _1));
   debug_camera_info_sub_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(
-    "~/input/camera_info", rclcpp::SensorDataQoS(),
+    resolved_camera_info_topic, rclcpp::SensorDataQoS(),
     std::bind(&DepthAnythingV3Node::onCameraInfoDebug, this, std::placeholders::_1));
-
-  RCLCPP_INFO(get_logger(), "Depth Anything V3 TensorRT node initialized successfully");
-  RCLCPP_INFO(get_logger(), "Waiting for synchronized messages on:");
-  RCLCPP_INFO(get_logger(), "  - Image topic: ~/input/image");
-  RCLCPP_INFO(get_logger(), "  - Camera info topic: ~/input/camera_info");
 
   // Publishers
   pub_depth_image_ = create_publisher<sensor_msgs::msg::Image>("~/output/depth_image", 1);
@@ -117,6 +122,24 @@ DepthAnythingV3Node::DepthAnythingV3Node(const rclcpp::NodeOptions & node_option
   if (node_param_.enable_debug) {
     pub_depth_image_debug_ = create_publisher<sensor_msgs::msg::Image>(
       "~/output/depth_image_debug", 1);
+  }
+
+  const auto resolved_depth_topic = this->get_node_topics_interface()->resolve_topic_name("~/output/depth_image");
+  const auto resolved_point_cloud_topic = this->get_node_topics_interface()->resolve_topic_name("~/output/point_cloud");
+  const auto resolved_debug_depth_topic = node_param_.enable_debug ?
+    this->get_node_topics_interface()->resolve_topic_name("~/output/depth_image_debug") :
+    std::string{};
+
+  RCLCPP_INFO(get_logger(), "Depth Anything V3 TensorRT node initialized successfully");
+  RCLCPP_INFO(get_logger(), "Subscribed topics:");
+  RCLCPP_INFO(get_logger(), "  - image (sync/debug): %s [transport=%s, base=%s]",
+              resolved_image_topic.c_str(), image_transport.c_str(), image_base_topic.c_str());
+  RCLCPP_INFO(get_logger(), "  - camera_info (sync/debug): %s", resolved_camera_info_topic.c_str());
+  RCLCPP_INFO(get_logger(), "Published topics:");
+  RCLCPP_INFO(get_logger(), "  - depth_image: %s", resolved_depth_topic.c_str());
+  RCLCPP_INFO(get_logger(), "  - point_cloud: %s", resolved_point_cloud_topic.c_str());
+  if (node_param_.enable_debug) {
+    RCLCPP_INFO(get_logger(), "  - depth_image_debug: %s", resolved_debug_depth_topic.c_str());
   }
 
   // Init TensorRT model

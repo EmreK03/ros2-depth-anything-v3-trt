@@ -117,7 +117,7 @@ ros2 launch depth_anything_v3 depth_anything_v3.launch.py
 
 ```bash
 ros2 launch depth_anything_v3 depth_anything_v3.launch.py \
-    input_image_topic:=/your_camera/image_raw \
+    input_image_topic:=/your_camera/image \
     input_camera_info_topic:=/your_camera/camera_info \
     output_depth_topic:=/depth_anything_v3/depth \
     output_point_cloud_topic:=/depth_anything_v3/points

@@ -28,6 +28,7 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <string>
 #include <image_transport/subscriber_filter.hpp>
+#include <image_transport/image_transport.hpp>
 #include <message_filters/subscriber.h>
 #include <message_filters/synchronizer.h>
 #include <message_filters/sync_policies/approximate_time.h>
@@ -67,7 +68,7 @@ private:
   std::shared_ptr<message_filters::Synchronizer<ApproxSyncPolicy>> sync_;
   
   // Debug subscribers (separate from sync)
-  rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr debug_image_sub_;
+  image_transport::SubscriberFilter debug_image_sub_;
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr debug_camera_info_sub_;
 
   // Callbacks
